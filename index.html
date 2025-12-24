@@ -1,309 +1,241 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WebAuthn SaaS 整合範例</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebAuthn SaaS 測試終端</title>
     <style>
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          sans-serif;
-        max-width: 600px;
-        margin: 40px auto;
-        padding: 20px;
-        line-height: 1.6;
-      }
-      h2 {
-        border-bottom: 2px solid #eee;
-        padding-bottom: 10px;
-      }
-      .form-group {
-        margin-bottom: 15px;
-      }
-      label {
-        display: block;
-        margin-bottom: 5px;
-        font-weight: bold;
-      }
-      input {
-        width: 100%;
-        padding: 8px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        box-sizing: border-box;
-      }
-      button {
-        padding: 10px 20px;
-        cursor: pointer;
-        background-color: #0070f3;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        font-size: 16px;
-        margin-right: 10px;
-      }
-      button:disabled {
-        background-color: #ccc;
-        cursor: not-allowed;
-      }
-      button.secondary {
-        background-color: #444;
-      }
-      #status {
-        margin-top: 20px;
-        padding: 15px;
-        background: #f9f9f9;
-        border-radius: 4px;
-        white-space: pre-wrap;
-        word-break: break-all;
-        font-family: monospace;
-        font-size: 12px;
-      }
-      .success {
-        color: green;
-        border-left: 4px solid green;
-      }
-      .error {
-        color: red;
-        border-left: 4px solid red;
-      }
+        :root { --primary: #0070f3; --bg: #f4f4f5; --card: #ffffff; --text: #18181b; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg); color: var(--text); display: flex; justify-content: center; padding-top: 50px; }
+        .container { background: var(--card); padding: 2rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); width: 400px; }
+        h2 { margin-top: 0; text-align: center; color: var(--primary); }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; }
+        input { width: 100%; padding: 10px; border: 1px solid #e4e4e7; border-radius: 6px; box-sizing: border-box; font-size: 1rem; }
+        .btn-group { display: flex; gap: 10px; margin-top: 1.5rem; }
+        button { flex: 1; padding: 10px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        #btn-reg { background-color: var(--primary); color: white; }
+        #btn-login { background-color: #27272a; color: white; }
+        button:hover { opacity: 0.9; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        #logs { margin-top: 1.5rem; background: #18181b; color: #00ff9d; padding: 1rem; border-radius: 6px; font-family: monospace; font-size: 0.8rem; height: 200px; overflow-y: auto; white-space: pre-wrap; }
+        .config-section { border-bottom: 1px solid #eee; padding-bottom: 1rem; margin-bottom: 1rem; }
     </style>
-  </head>
-  <body>
-    <h2>WebAuthn 生物辨識登入 (SaaS 模式)</h2>
-    <p>這是您的網站 (Tenant) 與身分驗證 SaaS 串接的範例。</p>
+</head>
+<body>
 
-    <div class="form-group">
-      <label for="username">使用者帳號 (Username)</label>
-      <input
-        type="text"
-        id="username"
-        placeholder="user@example.com"
-        value="testuser"
-      />
+<div class="container">
+    <h2>🔐 WebAuthn 測試</h2>
+    
+    <div class="config-section">
+        <div class="form-group">
+            <label>API Endpoint</label>
+            <input type="text" id="apiUrl" value="http://localhost:8080">
+        </div>
+        <div class="form-group">
+            <label>Tenant API Key (查資料庫)</label>
+            <input type="text" id="apiKey" placeholder="輸入 tenants 表中的 api_key">
+        </div>
     </div>
 
     <div class="form-group">
-      <button onclick="handleRegister()">🖐️ 註冊指紋/FaceID</button>
-      <button class="secondary" onclick="handleLogin()">🔑 使用指紋登入</button>
+        <label>使用者名稱 (Username)</label>
+        <input type="text" id="username" placeholder="user@example.com" value="testuser">
     </div>
 
-    <div id="status">等待操作...</div>
+    <div class="btn-group">
+        <button id="btn-reg" onclick="handleRegister()">🖐️ 註冊指紋</button>
+        <button id="btn-login" onclick="handleLogin()">🔑 驗證登入</button>
+    </div>
 
-    <script>
-      // ==========================================
-      // 1. 設定區 (Configuration)
-      // ==========================================
+    <div id="logs">系統準備就緒...</div>
+</div>
 
-      // 指向您的 SaaS API 位址 (本地開發通常是 localhost:3000)
-      const API_BASE_URL = "https://webauthn.zeabur.app";
+<script>
+    // ==========================================
+    // 核心邏輯
+    // ==========================================
 
-      // 客戶的 API Key (從 SaaS 後台取得)
-      const API_KEY = "test_api_key_ted";
-
-      const statusDiv = document.getElementById("status");
-
-      // ==========================================
-      // 2. 核心流程：註冊 (Registration)
-      // ==========================================
-      async function handleRegister() {
-        const username = document.getElementById("username").value;
-        if (!username) return alert("請輸入使用者帳號");
-
-        log("正在開始註冊流程...", "info");
+    async function handleRegister() {
+        if (!validateInputs()) return;
+        const { apiUrl, apiKey, username } = getInputs();
+        log('🚀 開始註冊流程...', true);
 
         try {
-          // Step 1: 呼叫 SaaS API 取得挑戰 (Challenge)
-          const beginRes = await fetch(`${API_BASE_URL}/register/begin`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-API-KEY": API_KEY,
-            },
-            body: JSON.stringify({ username }),
-          });
-
-          if (!beginRes.ok) throw new Error(await beginRes.text());
-          const { options, internalUserId } = await beginRes.json();
-
-          // Step 2: 轉換資料 (Base64URL -> ArrayBuffer)
-          // 這是最關鍵的一步，因為 WebAuthn API 只接受二進位資料
-          options.challenge = base64UrlToBuffer(options.challenge);
-          options.user.id = base64UrlToBuffer(options.user.id);
-          if (options.excludeCredentials) {
-            options.excludeCredentials.forEach((cred) => {
-              cred.id = base64UrlToBuffer(cred.id);
+            // 1. 取得註冊選項 (Get Options)
+            log('正在請求註冊參數...');
+            const beginRes = await fetch(`${apiUrl}/register/begin`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                body: JSON.stringify({ username })
             });
-          }
 
-          log("請在裝置上進行生物辨識驗證...", "info");
+            if (!beginRes.ok) throw new Error(await beginRes.text());
+            const { options, internalUserId } = await beginRes.json();
 
-          // Step 3: 喚起瀏覽器 WebAuthn
-          const credential = await navigator.credentials.create({
-            publicKey: options,
-          });
+            // ⚠️ 關鍵轉換：Server 傳來的是 Base64URL 字串，WebAuthn API 需要 ArrayBuffer
+            options.challenge = base64UrlToBuffer(options.challenge);
+            options.user.id = base64UrlToBuffer(options.user.id);
+            if (options.excludeCredentials) {
+                options.excludeCredentials.forEach(cred => cred.id = base64UrlToBuffer(cred.id));
+            }
 
-          // Step 4: 轉換回傳資料 (ArrayBuffer -> Base64URL)
-          // 為了透過 JSON 傳回伺服器，必須把二進位轉回字串
-          const credentialPayload = {
-            id: credential.id,
-            rawId: bufferToBase64Url(credential.rawId),
-            response: {
-              attestationObject: bufferToBase64Url(
-                credential.response.attestationObject
-              ),
-              clientDataJSON: bufferToBase64Url(
-                credential.response.clientDataJSON
-              ),
-            },
-            type: credential.type,
-          };
+            // 2. 喚起瀏覽器生物辨識
+            log('請進行生物辨識驗證...');
+            const credential = await navigator.credentials.create({ publicKey: options });
 
-          // Step 5: 傳回 SaaS API 進行驗證
-          const finishRes = await fetch(`${API_BASE_URL}/register/finish`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-API-KEY": API_KEY,
-            },
-            body: JSON.stringify({
-              internalUserId, // 帶回 API 給我們的 ID 以便追蹤 Session
-              credential: credentialPayload,
-            }),
-          });
+            // 3. 轉換回傳資料 (ArrayBuffer -> Base64URL String) 以便傳回 Server
+            const credentialPayload = {
+                id: credential.id,
+                rawId: bufferToBase64Url(credential.rawId),
+                response: {
+                    attestationObject: bufferToBase64Url(credential.response.attestationObject),
+                    clientDataJSON: bufferToBase64Url(credential.response.clientDataJSON),
+                    transports: credential.response.getTransports ? credential.response.getTransports() : []
+                },
+                type: credential.type,
+                clientExtensionResults: credential.getClientExtensionResults()
+            };
 
-          const result = await finishRes.json();
-          if (result.verified) {
-            log("✅ 註冊成功！該裝置已綁定。", "success");
-          } else {
-            throw new Error("伺服器驗證失敗");
-          }
+            // 4. 完成註冊
+            log('正在傳送簽章至伺服器...');
+            const finishRes = await fetch(`${apiUrl}/register/finish`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                body: JSON.stringify({ internalUserId, credential: credentialPayload })
+            });
+
+            const result = await finishRes.json();
+            if (result.verified) {
+                log('✅ 註冊成功！裝置已綁定。');
+            } else {
+                log('❌ 註冊失敗: ' + JSON.stringify(result));
+            }
+
         } catch (err) {
-          log(`❌ 註冊錯誤: ${err.message}`, "error");
-          console.error(err);
+            log('❌ 發生錯誤: ' + err.message);
+            console.error(err);
         }
-      }
+    }
 
-      // ==========================================
-      // 3. 核心流程：登入 (Login)
-      // ==========================================
-      async function handleLogin() {
-        const username = document.getElementById("username").value;
-        if (!username) return alert("請輸入使用者帳號");
-
-        log("正在開始登入流程...", "info");
+    async function handleLogin() {
+        if (!validateInputs()) return;
+        const { apiUrl, apiKey, username } = getInputs();
+        log('🚀 開始登入流程...', true);
 
         try {
-          // Step 1: 呼叫 SaaS API 取得挑戰
-          const beginRes = await fetch(`${API_BASE_URL}/login/begin`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-API-KEY": API_KEY,
-            },
-            body: JSON.stringify({ username }),
-          });
-
-          if (!beginRes.ok) throw new Error(await beginRes.text());
-          const { options, internalUserId } = await beginRes.json();
-
-          // Step 2: 轉換資料
-          options.challenge = base64UrlToBuffer(options.challenge);
-          if (options.allowCredentials) {
-            options.allowCredentials.forEach((cred) => {
-              cred.id = base64UrlToBuffer(cred.id);
+            // 1. 取得登入選項
+            log('正在請求登入參數...');
+            const beginRes = await fetch(`${apiUrl}/login/begin`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                body: JSON.stringify({ username })
             });
-          }
 
-          log("請驗證指紋/FaceID...", "info");
+            if (!beginRes.ok) throw new Error(await beginRes.text());
+            const { options, internalUserId } = await beginRes.json();
 
-          // Step 3: 喚起 WebAuthn
-          const credential = await navigator.credentials.get({
-            publicKey: options,
-          });
+            // ⚠️ 關鍵轉換：Challenge 和 AllowCredentials 都要轉 Buffer
+            options.challenge = base64UrlToBuffer(options.challenge);
+            if (options.allowCredentials) {
+                options.allowCredentials.forEach(cred => cred.id = base64UrlToBuffer(cred.id));
+            }
 
-          // Step 4: 轉換資料
-          const credentialPayload = {
-            id: credential.id,
-            rawId: bufferToBase64Url(credential.rawId),
-            response: {
-              authenticatorData: bufferToBase64Url(
-                credential.response.authenticatorData
-              ),
-              clientDataJSON: bufferToBase64Url(
-                credential.response.clientDataJSON
-              ),
-              signature: bufferToBase64Url(credential.response.signature),
-              userHandle: credential.response.userHandle
-                ? bufferToBase64Url(credential.response.userHandle)
-                : null,
-            },
-            type: credential.type,
-          };
+            // 2. 喚起驗證
+            log('請驗證您的指紋/FaceID...');
+            const credential = await navigator.credentials.get({ publicKey: options });
 
-          // Step 5: 傳回 SaaS API
-          const finishRes = await fetch(`${API_BASE_URL}/login/finish`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-API-KEY": API_KEY,
-            },
-            body: JSON.stringify({
-              internalUserId,
-              credential: credentialPayload,
-            }),
-          });
+            // 3. 轉換回傳資料
+            const credentialPayload = {
+                id: credential.id,
+                rawId: bufferToBase64Url(credential.rawId),
+                response: {
+                    authenticatorData: bufferToBase64Url(credential.response.authenticatorData),
+                    clientDataJSON: bufferToBase64Url(credential.response.clientDataJSON),
+                    signature: bufferToBase64Url(credential.response.signature),
+                    userHandle: credential.response.userHandle ? bufferToBase64Url(credential.response.userHandle) : null
+                },
+                type: credential.type,
+                clientExtensionResults: credential.getClientExtensionResults()
+            };
 
-          const result = await finishRes.json();
-          if (result.verified) {
-            log("🎉 登入成功！", "success");
-          } else {
-            throw new Error("伺服器驗證失敗");
-          }
+            // 4. 完成登入
+            log('正在驗證簽章...');
+            const finishRes = await fetch(`${apiUrl}/login/finish`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+                body: JSON.stringify({ internalUserId, credential: credentialPayload })
+            });
+
+            const result = await finishRes.json();
+            if (result.verified) {
+                log('🎉 登入成功！歡迎回來。');
+            } else {
+                log('❌ 登入失敗: ' + JSON.stringify(result));
+            }
+
         } catch (err) {
-          log(`❌ 登入錯誤: ${err.message}`, "error");
-          console.error(err);
+            log('❌ 發生錯誤: ' + err.message);
+            console.error(err);
         }
-      }
+    }
 
-      // ==========================================
-      // 4. 工具函式 (Utilities) - 處理 Base64URL 轉換
-      // ==========================================
+    // ==========================================
+    // 工具函式：Base64URL <-> ArrayBuffer 轉換
+    // ==========================================
+    
+    function bufferToBase64Url(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary)
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+    }
 
-      // 將 Base64URL 字串轉換為 ArrayBuffer (給瀏覽器用)
-      function base64UrlToBuffer(base64url) {
-        const padding = "=".repeat((4 - (base64url.length % 4)) % 4);
+    function base64UrlToBuffer(base64url) {
+        const padding = '='.repeat((4 - base64url.length % 4) % 4);
         const base64 = (base64url + padding)
-          .replace(/\-/g, "+")
-          .replace(/_/g, "/");
-        const rawData = window.atob(base64);
+            .replace(/-/g, '+')
+            .replace(/_/g, '/');
+        const rawData = atob(base64);
         const outputArray = new Uint8Array(rawData.length);
         for (let i = 0; i < rawData.length; ++i) {
-          outputArray[i] = rawData.charCodeAt(i);
+            outputArray[i] = rawData.charCodeAt(i);
         }
         return outputArray.buffer;
-      }
+    }
 
-      // 將 ArrayBuffer 轉換為 Base64URL 字串 (給 API 用)
-      function bufferToBase64Url(buffer) {
-        const bytes = new Uint8Array(buffer);
-        let binary = "";
-        for (let i = 0; i < bytes.byteLength; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        return window
-          .btoa(binary)
-          .replace(/\+/g, "-")
-          .replace(/\//g, "_")
-          .replace(/=/g, "");
-      }
+    // ==========================================
+    // UI 輔助
+    // ==========================================
 
-      function log(msg, type) {
-        const el = document.getElementById("status");
-        el.innerText = msg;
-        el.className =
-          type === "success" ? "success" : type === "error" ? "error" : "";
-      }
-    </script>
-  </body>
+    function getInputs() {
+        return {
+            apiUrl: document.getElementById('apiUrl').value.replace(/\/$/, ''),
+            apiKey: document.getElementById('apiKey').value,
+            username: document.getElementById('username').value
+        };
+    }
+
+    function validateInputs() {
+        const { apiKey, username } = getInputs();
+        if (!apiKey) { alert('請輸入 API Key'); return false; }
+        if (!username) { alert('請輸入使用者名稱'); return false; }
+        return true;
+    }
+
+    function log(msg, clear = false) {
+        const el = document.getElementById('logs');
+        if (clear) el.innerHTML = '';
+        const time = new Date().toLocaleTimeString();
+        el.innerHTML += `[${time}] ${msg}\n`;
+        el.scrollTop = el.scrollHeight;
+    }
+</script>
+
+</body>
 </html>
